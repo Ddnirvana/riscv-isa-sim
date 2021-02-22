@@ -213,6 +213,10 @@ struct state_t
   uint8_t pmpcfg[max_pmp];
   reg_t pmpaddr[max_pmp];
 
+  static const int max_spmp = 16;
+  uint8_t spmpcfg[max_spmp];
+  reg_t spmpaddr[max_spmp];
+
   uint32_t fflags;
   uint32_t frm;
   bool serialized; // whether timer CSRs are in a well-defined state
@@ -426,6 +430,9 @@ public:
   void set_pmp_granularity(reg_t pmp_granularity);
   void set_mmu_capability(int cap);
 
+  void set_spmp_num(reg_t spmp_num);
+  void set_spmp_granularity(reg_t spmp_granularity);
+
   const char* get_symbol(uint64_t addr);
 
 private:
@@ -461,6 +468,7 @@ private:
   int paddr_bits();
 
   reg_t pmp_tor_mask() { return -(reg_t(1) << (lg_pmp_granularity - PMP_SHIFT)); }
+  reg_t spmp_tor_mask() { return -(reg_t(1) << (lg_spmp_granularity - SPMP_SHIFT)); }
 
   void enter_debug_mode(uint8_t cause);
 
@@ -480,6 +488,8 @@ private:
   uint64_t last_pc, last_bits, executions;
   reg_t n_pmp;
   reg_t lg_pmp_granularity;
+  reg_t n_spmp;
+  reg_t lg_spmp_granularity;
 
 public:
   class vectorUnit_t {

@@ -46,6 +46,9 @@ processor_t::processor_t(const char* isa, const char* priv, const char* varch,
   set_pmp_granularity(1 << PMP_SHIFT);
   set_pmp_num(state.max_pmp);
 
+  set_spmp_granularity(1 << SPMP_SHIFT);
+  set_spmp_num(state.max_spmp);
+
   if (max_xlen == 32)
     set_mmu_capability(IMPL_MMU_SV32);
   else if (max_xlen == 64)
@@ -358,6 +361,9 @@ void state_t::reset(reg_t max_isa)
   memset(this->pmpcfg, 0, sizeof(this->pmpcfg));
   memset(this->pmpaddr, 0, sizeof(this->pmpaddr));
 
+  memset(this->spmpcfg, 0, sizeof(this->spmpcfg));
+  memset(this->spmpaddr, 0, sizeof(this->spmpaddr));
+
   fflags = 0;
   frm = 0;
   serialized = false;
@@ -471,6 +477,13 @@ void processor_t::reset()
     set_csr(CSR_PMPCFG0, PMP_R | PMP_W | PMP_X | PMP_NAPOT);
   }
 
+  if (n_spmp > 0) {
+    // For backwards compatibility with software that is unaware of sPMP,
+    // initialize sPMP to permit unprivileged access to all of memory.
+    set_csr(CSR_SPMPADDR0, ~reg_t(0));
+    set_csr(CSR_SPMPCFG0, SPMP_SharedRWX | SPMP_NAPOT);
+  }
+
    for (auto e : custom_extensions) // reset any extensions
     e.second->reset();
 
@@ -516,6 +529,26 @@ void processor_t::set_pmp_granularity(reg_t gran) {
   }
 
   lg_pmp_granularity = ctz(gran);
+}
+
+void processor_t::set_spmp_num(reg_t n)
+{
+  // check the number of spmp is in a reasonable range
+  if (n > state.max_spmp) {
+    fprintf(stderr, "error: bad number of spmp regions: '%ld' from the dtb\n", (unsigned long)n);
+    abort();
+  }
+  n_spmp = n;
+}
+
+void processor_t::set_spmp_granularity(reg_t gran) {
+  // check the spmp granularity is set from dtb(!=0) and is power of 2
+  if (gran < (1 << SPMP_SHIFT) || (gran & (gran - 1)) != 0) {
+    fprintf(stderr, "error: bad spmp granularity '%ld' from the dtb\n", (unsigned long)gran);
+    abort();
+  }
+
+  lg_spmp_granularity = ctz(gran);
 }
 
 void processor_t::set_mmu_capability(int cap)
@@ -902,6 +935,37 @@ void processor_t::set_csr(int which, reg_t val)
         if (lg_pmp_granularity != PMP_SHIFT && (cfg & PMP_A) == PMP_NA4)
           cfg |= PMP_NAPOT; // Disallow A=NA4 when granularity > 4
         state.pmpcfg[i] = cfg;
+        LOG_CSR(which);
+      }
+    }
+    mmu->flush_tlb();
+  }
+
+  if (which >= CSR_SPMPADDR0 && which < CSR_SPMPADDR0 + state.max_spmp) {
+    // If no sPMPs are configured, disallow access to all.  Otherwise, allow
+    // access to all, but unimplemented ones are hardwired to zero.
+    if (n_spmp == 0)
+      return;
+
+    size_t i = which - CSR_PMPADDR0;
+    if (i < n_pmp) {
+      state.spmpaddr[i] = val & ((reg_t(1) << (MAX_PADDR_BITS - SPMP_SHIFT)) - 1);
+      LOG_CSR(which);
+    }
+
+    mmu->flush_tlb();
+  }
+
+  if (which >= CSR_SPMPCFG0 && which < CSR_SPMPCFG0 + state.max_spmp / 4) {
+    if (n_spmp == 0)
+      return;
+
+    for (size_t i0 = (which - CSR_SPMPCFG0) * 4, i = i0; i < i0 + xlen / 8; i++) {
+      if (i < n_spmp) {
+        uint8_t cfg = (val >> (8 * (i - i0))) & (SPMP_R | SPMP_W | SPMP_X | SPMP_A | SPMP_S);
+        if (lg_spmp_granularity != SPMP_SHIFT && (cfg & SPMP_A) == SPMP_NA4)
+          cfg |= SPMP_NAPOT; // Disallow A=NA4 when granularity > 4
+        state.spmpcfg[i] = cfg;
         LOG_CSR(which);
       }
     }
@@ -1447,6 +1511,26 @@ reg_t processor_t::get_csr(int which, insn_t insn, bool write, bool peek)
     reg_t cfg_res = 0;
     for (size_t i0 = (which - CSR_PMPCFG0) * 4, i = i0; i < i0 + xlen / 8 && i < state.max_pmp; i++)
       cfg_res |= reg_t(state.pmpcfg[i]) << (8 * (i - i0));
+    ret(cfg_res);
+  }
+
+  if (which >= CSR_SPMPADDR0 && which < CSR_SPMPADDR0 + state.max_spmp) {
+    // If n_spmp is zero, that means spmp is not implemented hence raise trap if it tries to access the csr
+    if (n_spmp == 0)
+      goto throw_illegal;
+    reg_t i = which - CSR_SPMPADDR0;
+    if ((state.spmpcfg[i] & SPMP_A) >= SPMP_NAPOT)
+      ret(state.spmpaddr[i] | (~spmp_tor_mask() >> 1));
+    else
+      ret(state.spmpaddr[i] & spmp_tor_mask());
+  }
+
+  if (which >= CSR_SPMPCFG0 && which < CSR_SPMPCFG0 + state.max_spmp / 4) {
+    require((which & ((xlen / 32) - 1)) == 0);
+
+    reg_t cfg_res = 0;
+    for (size_t i0 = (which - CSR_SPMPCFG0) * 4, i = i0; i < i0 + xlen / 8 && i < state.max_spmp; i++)
+      cfg_res |= reg_t(state.spmpcfg[i]) << (8 * (i - i0));
     ret(cfg_res);
   }
 
