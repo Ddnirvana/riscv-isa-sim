@@ -58,7 +58,6 @@ static void throw_page_fault_exception(bool virt, reg_t addr, access_type type)
     default: abort();
   }
 }
-static void throw_access_exception(bool virt, reg_t addr, access_type type)
 
 reg_t mmu_t::translate(reg_t addr, reg_t len, access_type type, uint32_t xlate_flags)
 {
