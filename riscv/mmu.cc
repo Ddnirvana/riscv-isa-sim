@@ -48,6 +48,18 @@ static void throw_access_exception(bool virt, reg_t addr, access_type type)
   }
 }
 
+/* Exception for sPMP */
+static void throw_page_fault_exception(bool virt, reg_t addr, access_type type)
+{
+  switch (type) {
+    case FETCH: throw trap_instruction_page_fault(virt, addr, 0, 0);
+    case LOAD: throw trap_load_page_fault(virt, addr, 0, 0);
+    case STORE: throw trap_store_page_fault(virt, addr, 0, 0);
+    default: abort();
+  }
+}
+static void throw_access_exception(bool virt, reg_t addr, access_type type)
+
 reg_t mmu_t::translate(reg_t addr, reg_t len, access_type type, uint32_t xlate_flags)
 {
   if (!proc)
@@ -74,6 +86,10 @@ reg_t mmu_t::translate(reg_t addr, reg_t len, access_type type, uint32_t xlate_f
   reg_t paddr = walk(addr, type, mode, virt, mxr) | (addr & (PGSIZE-1));
   if (!pmp_ok(paddr, len, type, mode))
     throw_access_exception(virt, addr, type);
+
+  if (!spmp_ok(paddr, len, type, mode))
+    throw_page_fault_exception(virt, addr, type);
+
   return paddr;
 }
 
@@ -262,6 +278,77 @@ reg_t mmu_t::pmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
   return mode == PRV_M;
 }
 
+reg_t mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
+{
+  if (!proc || proc->n_spmp == 0)
+    return true;
+
+  reg_t base = 0;
+  for (size_t i = 0; i < proc->n_spmp; i++) {
+    reg_t tor = (proc->state.spmpaddr[i] & proc->spmp_tor_mask()) << SPMP_SHIFT;
+    uint8_t cfg = proc->state.spmpcfg[i];
+
+    if (cfg & SPMP_A) {
+      bool is_tor = (cfg & SPMP_A) == SPMP_TOR;
+      bool is_na4 = (cfg & SPMP_A) == SPMP_NA4;
+
+      reg_t mask = (proc->state.spmpaddr[i] << 1) | (!is_na4) | ~proc->spmp_tor_mask();
+      mask = ~(mask & ~(mask + 1)) << SPMP_SHIFT;
+
+      // Check each 4-byte sector of the access
+      bool any_match = false;
+      bool all_match = true;
+      for (reg_t offset = 0; offset < len; offset += 1 << SPMP_SHIFT) {
+        reg_t cur_addr = addr + offset;
+        bool napot_match = ((cur_addr ^ tor) & mask) == 0;
+        bool tor_match = base <= cur_addr && cur_addr < tor;
+        bool match = is_tor ? tor_match : napot_match;
+        any_match |= match;
+        all_match &= match;
+      }
+
+      if (any_match) {
+        // If the SPMP matches only a strict subset of the access, fail it
+        if (!all_match)
+          return false;
+
+	// prepare to check sPMP
+	bool cfgx = cfg & SPMP_X;
+	bool cfgw = cfg & SPMP_W;
+	bool cfgr = cfg & SPMP_R;
+	bool cfgs = cfg & SPMP_S;
+
+	bool privs = mode == PRV_S;
+
+	bool typer = type == LOAD;
+	bool typex = type == FETCH;
+	bool typew = type == STORE;
+	bool normal_rwx = (typer && cfgr) || (typew && cfgw) || (typex && cfgx);
+
+	bool spmp_shared_region = (!cfgr && cfgw) ||
+				  (cfgx && cfgw && cfgr && cfgs) ||
+				  (!cfgx && !cfgw && !cfgr && cfgs);
+
+	bool sum = get_field(proc->state.mstatus, MSTATUS_SUM);
+
+	bool spmp_chk_normal = ((privs == cfgs) && normal_rwx) || (sum && privs && !cfgs && normal_rwx) ;
+	bool spmp_chk_shared = ((!cfgs && !cfgx) && ( typer || (typew && privs))) || //shared data region
+		( (!cfgs && cfgx) && (typer || typew) ) || //shared data region
+		( cfgs && !cfgr && cfgw && typex) ||  //execute-only regions (2)
+		( cfgs && !cfgr && cfgw && cfgx && typer) ||  //S-mode r/x shared regions
+		( cfgs && cfgr && typer) || //read-only on both S/U mode
+		( cfgs && !cfgw) //read/write/execute on S/U mode
+			;
+
+	return (mode == PRV_M) || (spmp_shared_region ? spmp_chk_shared : spmp_chk_normal);
+      }
+    }
+    base = tor;
+  }
+
+  return mode == PRV_M || mode == PRV_S;
+}
+
 reg_t mmu_t::pmp_homogeneous(reg_t addr, reg_t len)
 {
   if ((addr | len) & (len - 1))
@@ -322,6 +409,7 @@ reg_t mmu_t::s2xlate(reg_t gva, reg_t gpa, access_type type, access_type trap_ty
     if (!ppte || !pmp_ok(pte_paddr, vm.ptesize, LOAD, PRV_S)) {
       throw_access_exception(virt, gva, trap_type);
     }
+    /* FIXME: should we check sPMP here? */
 
     reg_t pte = vm.ptesize == 4 ? from_target(*(target_endian<uint32_t>*)ppte) : from_target(*(target_endian<uint64_t>*)ppte);
     reg_t ppn = (pte & ~reg_t(PTE_N)) >> PTE_PPN_SHIFT;
@@ -403,6 +491,9 @@ reg_t mmu_t::walk(reg_t addr, access_type type, reg_t mode, bool virt, bool mxr)
     if (!ppte || !pmp_ok(pte_paddr, vm.ptesize, LOAD, PRV_S))
       throw_access_exception(virt, addr, type);
 
+    if (!spmp_ok(pte_paddr, vm.ptesize, LOAD, PRV_S))
+      throw_page_fault_exception(virt, addr, type);
+
     reg_t pte = vm.ptesize == 4 ? from_target(*(target_endian<uint32_t>*)ppte) : from_target(*(target_endian<uint64_t>*)ppte);
     reg_t ppn = (pte & ~reg_t(PTE_N)) >> PTE_PPN_SHIFT;
 
@@ -425,6 +516,10 @@ reg_t mmu_t::walk(reg_t addr, access_type type, reg_t mode, bool virt, bool mxr)
       if ((pte & ad) != ad) {
         if (!pmp_ok(pte_paddr, vm.ptesize, STORE, PRV_S))
           throw_access_exception(virt, addr, type);
+
+        if (!spmp_ok(pte_paddr, vm.ptesize, STORE, PRV_S))
+          throw_page_table_exception(virt, addr, type);
+
         *(target_endian<uint32_t>*)ppte |= to_target((uint32_t)ad);
       }
 #else
