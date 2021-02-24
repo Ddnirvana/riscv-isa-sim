@@ -1,16 +1,14 @@
 
 /*
  * @tag@
- * Generated from gen_pmp_test.cc and test_pmp_ok_share_1.cc_skel.
+ * Generated from gen_spmp_test.cc and test_spmp_ok_1.cc_skel.
  * 
- * This test program is to test pmp_ok() when share mode (RW=01).
- * Based on other test cases for mseccfg stiky bits, this test expects following:
- * - RW = 01. For RW != 01, less combinations to show it fail.
- * - MML set
- * - Regine matched.
+ * This test program is expected to start executed from M mode.
+ * That will be easier for us to deal with pmp exception for test.
  * 
  * Remarks:
- * - 
+ * - RW=01 not covered. U/M mode share will be tested separately
+ * - RLB is always 0. CSR access control will be tested separately
  */
 
 /*
@@ -33,8 +31,8 @@
 #define MSECCFG_MMWP 0x2
 #define MSECCFG_RLB  0x4
 
-#define TEST_RW (1 - @typex:int@)
-#define TEST_FETCH (@typex:int@)
+#define TEST_RW 1
+#define TEST_FETCH 1
 
 #define CAUSE_LOAD_ACCESS 0x5
 #define CAUSE_STORE_ACCESS 0x7
@@ -62,15 +60,11 @@ void exit(int code);
 #define U_MEM_END (TEST_MEM_END + 0x10000)
 #define FAKE_ADDRESS 0x10000000
 
-static const unsigned long expected_r_fail = @expected_r_fail:int@;
-static unsigned actual_r_fail = 0;
-
-static const unsigned long expected_w_fail = @expected_w_fail:int@;
-static unsigned actual_w_fail = 0;
+static const unsigned long expected_rw_fail = @expected_rw_fail:int@;
+static unsigned actual_rw_fail = 0;
 
 static const unsigned long expected_x_fail = @expected_x_fail:int@;
 static unsigned actual_x_fail = 0;
-
 static void checkTestResult(void);
 
 /*
@@ -88,10 +82,7 @@ uintptr_t handle_trap(uintptr_t cause, uintptr_t epc, uintptr_t regs[32])
         asm volatile ("csrr %0, mtval\n" : "=r"(addr));
 //        printf("addr = 0x%x\n", addr);
         if (addr >= TEST_MEM_START && addr < TEST_MEM_END) {
-            if (cause == CAUSE_LOAD_ACCESS)
-                actual_r_fail = 1;
-            else 
-                actual_w_fail = 1;
+            actual_rw_fail = 1;
             return epc + 4;
         }
         
@@ -107,7 +98,8 @@ uintptr_t handle_trap(uintptr_t cause, uintptr_t epc, uintptr_t regs[32])
 }
 
 
-static void switch_mode_access() {
+// switch (eret) to U mode and resume next PC
+static void switch_to_U() {
     reg_t tmp;
     asm volatile (
             "li %0, %1\n"
@@ -119,9 +111,16 @@ static void switch_mode_access() {
             : "=r"(tmp) : "n"(MSTATUS_MPP), "n"(U_MEM_END) : "memory");
 }
 
+static void switch_mode() {
+#if @switch_u_mode:int@
+    switch_to_U();
+#endif
+}
+
 __attribute ((section(".text_test_foo"), noinline))
 static void target_foo() {
     asm volatile ("nop");
+    
     actual_x_fail = 0;
 }
 
@@ -156,10 +155,13 @@ static void set_cfg() {
      * Set pmp0cfg for M mode (M_MEM), and pmp1cfg for base of TOR.
      * Then use pmp2cfg for TEST_MEM. Both test code and data share PMP entrance.
      * Also use pmp3cfg for fixed U mode (U_MEM).
+     * 
+     * Here @@pmp_addr_offset:int@@ is to create an address mismatch
+     * And @@create_pmp_cfg:int@@ is to create cfg mismatch.
      */
     asm volatile ("csrw pmpaddr3, %0 \n" :: "r"(U_MEM_END >> 2) : "memory");
     asm volatile ("csrw pmpaddr2, %0 \n" :: "r"(TEST_MEM_END >> 2) : "memory");
-    asm volatile ("csrw pmpaddr1, %0 \n" :: "r"((TEST_MEM_START) >> 2) : "memory");
+    asm volatile ("csrw pmpaddr1, %0 \n" :: "r"((TEST_MEM_START + @pmp_addr_offset:int@) >> 2) : "memory");
     asm volatile ("csrw pmpaddr0, %0 \n" :: "r"((TEST_MEM_START >> 3) - 1) : "memory");
     
     reg_t cfg0 = (PMP_R | PMP_W | PMP_X | PMP_NAPOT);
@@ -169,27 +171,23 @@ static void set_cfg() {
 //        exit(cfg0);
 //    }
     
-    // need to set L bit for M mode before set MML
-    cfg0 |= PMP_L;
-    asm volatile ("csrw pmpcfg0, %0 \n"
-                :
-                : "r"(cfg0)
-                : "memory");
-    // set proc->state.mseccfg, for MML/MMWP
-    const unsigned seccfg_bits = MSECCFG_MML | MSECCFG_MMWP;
-    asm volatile ("csrs 0x390, %0 \n"::"r"(seccfg_bits));
-    
-    // after set MML, RW=01 is possible
+    if (@set_sec_mml:int@) {    // need to set L bit for M mode code like trap_handling
+        cfg0 |= PMP_L;
+    }
     cfg0 |= (PMP_R | PMP_W | PMP_X | PMP_TOR) << 24;    // for U_MEM
-    cfg0 |= ((@pmp_r:int@ ? PMP_R : 0)                  // for TEST_MEM
-            | PMP_W
-            | (@pmp_x:int@ ? PMP_X : 0)    
-            | (@pmp_l:int@ ? PMP_L : 0) 
-            | PMP_TOR) << 16;
+#if @create_pmp_cfg:int@
+    cfg0 |= ((@pmp_rw:int@ ? (PMP_R | PMP_W)  : 0) | (@pmp_x:int@ ? PMP_X : 0) | PMP_TOR | (@pmp_l:int@ ? PMP_L : 0)) << 16;
+#endif   
     asm volatile ("csrw pmpcfg0, %0 \n"
                 :
                 : "r"(cfg0)
                 : "memory");
+    
+    // set proc->state.mseccfg, for MML/MMWP
+    const unsigned seccfg_bits = (@set_sec_mml:int@ ? MSECCFG_MML : 0) | (@set_sec_mmwp:int@ ? MSECCFG_MMWP : 0);
+    if (seccfg_bits) {
+        asm volatile ("csrs 0x390, %0 \n"::"r"(seccfg_bits));
+    }
     
     // currently dummy since tlb flushed when set_csr on mseccfg
     asm volatile ("fence.i \n");
@@ -203,11 +201,8 @@ static void try_access() {
     const unsigned long delta = 0x1020304005060708UL;
     *(long *)target_arr += delta;
 
-    if (actual_r_fail == 0 && actual_w_fail == 0) {
-        if (*(long *)target_arr != 0x0807060504030201UL + delta + 1) {
-            actual_r_fail = 1;
-            actual_w_fail = 1;
-        }
+    if (*(long *)target_arr != 0x0807060504030201UL + delta + 1) {
+        actual_rw_fail = 1;
     }
 #endif
 
@@ -242,16 +237,13 @@ void try_access_umode() {
 
 static void checkTestResult() {
     int ret = 0;
-    if (expected_r_fail != actual_r_fail) {
+    if (expected_rw_fail != actual_rw_fail) {
         ret += 1;
-        printf("Read test fail, expected %d, actual %d.\n", expected_r_fail, actual_r_fail);
+        printf("Read/write test fail, expected %d, actual %d.\n", expected_rw_fail, actual_rw_fail);
     }
-    if (expected_w_fail != actual_w_fail) {
-        ret += 2;
-        printf("Write test fail, expected %d, actual %d.\n", expected_w_fail, actual_w_fail);
-    }
+
     if (expected_x_fail != actual_x_fail) {
-        ret += 4;
+        ret += 2;
         printf("Fetch test fail, expected %d, actual %d.\n", expected_x_fail, actual_x_fail);
     }
     
@@ -264,11 +256,10 @@ int main() {
     // assert in M mode
     set_cfg();
 
+    switch_mode();  // in case swith to u mode, branch to try_access_umode directly
+
     try_access();
-#if @enable_umode_test:int@
-    switch_mode_access();   // access in umode and report final result
-#else
+
     checkTestResult();
-#endif
     return 0; // assert 0
 }
