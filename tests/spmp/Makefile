@@ -9,7 +9,8 @@ RISCV_TOOL = $(RISCV)/bin
 ## Note(DD): we must have a RISCV_TEST here
 RISCV_TEST ?= /home/chos/riscv-tests
 
-SPIKE_PATH = /home/chos/riscv-spike-install/
+#SPIKE_PATH = /home/chos/riscv-spike-install/
+SPIKE_PATH = /home/chos/build
 
 SSP_OPT ?=
 PERF ?= 0
@@ -32,8 +33,10 @@ OBJECTS ?= $(ALL_TEST)
 CFLAGS = -march=rv64imafd -O2 -I . -I ./$(LIB_PATH) -I ../../softfloat -I ../../riscv \
 	-I $(RISCV_TEST)/env -I $(RISCV_TEST)/benchmarks/common \
 	-fno-builtin-printf -fdata-sections -fno-section-anchors $(SSP_OPT)
+#LDFLAGS = -mcmodel=medany -static -nostdlib -nostartfiles -lm -lgcc \
+#	-T $(LIB_PATH)/mseccfg_test.ld  -Wl,-M -Wl,-Map=link.log
 LDFLAGS = -mcmodel=medany -static -nostdlib -nostartfiles -lm -lgcc \
-	-T $(LIB_PATH)/mseccfg_test.ld  -Wl,-M -Wl,-Map=link.log
+	-T $(LIB_PATH)/spmp_test.ld  -Wl,-M -Wl,-Map=link.log
 	
 # must enable 'C', maybe used in pk
 # 8M for TCM memories
@@ -49,14 +52,14 @@ gen:
 	cd gengen_src; $(MAKE); $(MAKE) gen;
 	
 $(OBJECTS):
-	$(RISCV_TOOL)/riscv64-unknown-elf-gcc $(CFLAGS) $(TEST_PATH)/$@.c $(COMMON_FILES) $(LDFLAGS) -o a.out 
+	$(RISCV_TOOL)/riscv64-unknown-elf-gcc $(CFLAGS) -DPRINTF_SUPPORTED $(TEST_PATH)/$@.c $(COMMON_FILES) $(LDFLAGS) -o a.out 
 	@echo Running $(TEST_PATH)/$@.c
 	@$(RISCV_TOOL)/riscv64-unknown-elf-objdump -d a.out > a.ss
 	@$(RISCV_TOOL)/riscv64-unknown-elf-objdump --disassemble=target_foo a.out >> a.ss
 ifeq ($(PERF), 0)
-	$(SPIKE_PATH)/spike $(SIM_ISA) -m0x100000:0x200000 a.out
-	/home/scratch.soberl_maxwell/arch1/sail_all/sail-riscv/c_emulator/riscv_sim_RV64 --enable-pmp -V a.out > tmp.log 2>&1; grep SUCCESS tmp.log
-	@-grep FAILURE tmp.log
+	$(SPIKE_PATH)/spike $(SIM_ISA) -m0x100000:0x400000 a.out
+#	/home/scratch.soberl_maxwell/arch1/sail_all/sail-riscv/c_emulator/riscv_sim_RV64 --enable-pmp -V a.out > tmp.log 2>&1; grep SUCCESS tmp.log
+#	@-grep FAILURE tmp.log
 #	$(RISCV_TOOL)/spike $(SIM_ISA) -l a.out > $@_pc.log 2>&1
 #	sed -i '0,/ nop/d' $@_pc.log
 #	sed -i '/ nop/q' $@_pc.log
@@ -69,7 +72,7 @@ clean:
 	
 log:
 	$(SPIKE_PATH)/spike $(SIM_ISA) -m0x100000:0x200000 -l a.out > 1.log 2>&1
-	/home/scratch.soberl_maxwell/arch1/sail_all/sail-riscv/c_emulator/riscv_sim_RV64 --enable-pmp a.out > 2.log 2>&1
+#	/home/scratch.soberl_maxwell/arch1/sail_all/sail-riscv/c_emulator/riscv_sim_RV64 --enable-pmp a.out > 2.log 2>&1
 	
 env:
 	echo $(ALL_TEST)

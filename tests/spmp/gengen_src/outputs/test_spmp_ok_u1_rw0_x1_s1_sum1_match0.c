@@ -1,6 +1,6 @@
 
 /*
- * @tag@
+ * outputs/test_spmp_ok_u1_rw0_x1_s1_sum1_match0.c
  * Generated from gen_spmp_test.cc and test_spmp_ok_1.cc_skel.
  * 
  * This test program is expected to start executed from M mode.
@@ -85,12 +85,12 @@ void exit(int code);
 #define S_MEM_END (0x280000 + 0x10000)
 #define FAKE_ADDRESS 0x10000000
 
-static const unsigned long expected_rw_fail = @expected_rw_fail:int@;
+static const unsigned long expected_rw_fail = 1;
 
 __attribute ((section(".data_smode"), noinline))
 static unsigned actual_rw_fail = 0;
 
-static const unsigned long expected_x_fail = @expected_x_fail:int@;
+static const unsigned long expected_x_fail = 1;
 
 /* Note: the test code will try to access x_fail in s-mode, this will not be prevented by PMP
          As PMP gives all permission up.
@@ -166,7 +166,7 @@ static void switch_to_U() {
 }
 
 static void switch_mode() {
-#if @switch_u_mode:int@
+#if 1
     switch_to_U();
 #endif
 }
@@ -300,14 +300,14 @@ void smode_main() {
 	/* configure sPMP */
 
    	/*
-   	 * Here @@spmp_addr_offset:int@@ is to create an address mismatch
-   	 * And @@create_spmp_cfg:int@@ is to create cfg mismatch.
+   	 * Here @spmp_addr_offset:int@ is to create an address mismatch
+   	 * And @create_spmp_cfg:int@ is to create cfg mismatch.
    	 */
 #if 0
    	asm volatile ("csrw 0x1b4, %0 \n" :: "r"(S_MEM_END >> 2) : "memory"); //spmpaddr4
    	asm volatile ("csrw 0x1b3, %0 \n" :: "r"(U_MEM_END >> 2) : "memory"); //spmpaddr3
    	asm volatile ("csrw 0x1b2, %0 \n" :: "r"(TEST_MEM_END >> 2) : "memory"); //spmpaddr2
-   	asm volatile ("csrw 0x1b1, %0 \n" :: "r"((TEST_MEM_START + @spmp_addr_offset:int@) >> 2) : "memory"); //spmpaddr1
+   	asm volatile ("csrw 0x1b1, %0 \n" :: "r"((TEST_MEM_START + 0) >> 2) : "memory"); //spmpaddr1
 
    	asm volatile ("csrw 0x1b0, %0 \n" :: "r"((TEST_MEM_START >> 3) - 1) : "memory"); //spmpaddr0
     
@@ -318,8 +318,8 @@ void smode_main() {
 	reg_t cfg1 = (PMP_R | PMP_W | PMP_X | SPMP_S | PMP_TOR);   // for S_MEM
 
     	cfg0 |= (PMP_R | PMP_W | PMP_X | PMP_TOR) << 24;    // for U_MEM
-#if @create_spmp_cfg:int@
-    	cfg0 |= ((@spmp_rw:int@ ? (PMP_R | PMP_W)  : 0) | (@spmp_x:int@ ? PMP_X : 0) | PMP_TOR | (@spmp_s:int@ ? SPMP_S : 0)) << 16;
+#if 0
+    	cfg0 |= ((0 ? (PMP_R | PMP_W)  : 0) | (1 ? PMP_X : 0) | PMP_TOR | (1 ? SPMP_S : 0)) << 16;
 #endif   
     	asm volatile ("csrw 0x1a0, %0 \n"
     	            :
@@ -329,7 +329,7 @@ void smode_main() {
    	asm volatile ("csrw 0x1b3, %0 \n" :: "r"(S_MEM_END >> 2) : "memory"); //spmpaddr3
    	asm volatile ("csrw 0x1b2, %0 \n" :: "r"(U_MEM_END >> 2) : "memory"); //spmpaddr2
    	asm volatile ("csrw 0x1b1, %0 \n" :: "r"(TEST_MEM_END >> 2) : "memory"); //spmpaddr1
-   	asm volatile ("csrw 0x1b0, %0 \n" :: "r"((TEST_MEM_START + @spmp_addr_offset:int@) >> 2) : "memory"); //spmpaddr0
+   	asm volatile ("csrw 0x1b0, %0 \n" :: "r"((TEST_MEM_START + 0) >> 2) : "memory"); //spmpaddr0
 
 	//reg_t cfg0 = (PMP_R | PMP_W | PMP_X | PMP_NAPOT) << 24; // for S_MEM
 
@@ -338,8 +338,8 @@ void smode_main() {
 
     	cfg0 |= (PMP_R | PMP_W | PMP_X | PMP_TOR) << 16;    // for U_MEM
 
-#if @create_spmp_cfg:int@
-    	cfg0 |= ((@spmp_rw:int@ ? (PMP_R | PMP_W)  : 0) | (@spmp_x:int@ ? PMP_X : 0) | PMP_TOR | (@spmp_s:int@ ? SPMP_S : 0)) << 8;
+#if 0
+    	cfg0 |= ((0 ? (PMP_R | PMP_W)  : 0) | (1 ? PMP_X : 0) | PMP_TOR | (1 ? SPMP_S : 0)) << 8;
 #endif   
     	asm volatile ("csrw 0x1a0, %0 \n"
     	            :
@@ -348,7 +348,7 @@ void smode_main() {
 #endif
 
 	//configure SUM bit
-#if @sum:int@
+#if 1
 	//set SUM
     	asm volatile (
     	        "li t0, 0x00040000\n"
@@ -395,3 +395,4 @@ int main() {
 
     return 0; // assert 0
 }
+
