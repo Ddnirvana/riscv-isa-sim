@@ -308,8 +308,14 @@ reg_t mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 
       if (any_match) {
         // If the SPMP matches only a strict subset of the access, fail it
-        if (!all_match)
-          return false;
+        if (!all_match) {
+		if (mode == PRV_U)
+			fprintf(stderr, "[%s] partial unmatched\n", __func__);
+
+		return (!(mode == PRV_U)); //only U-mode fails
+		//user mode access, return false
+		return false;
+	}
 
 	// prepare to check sPMP
 	bool cfgx = cfg & SPMP_X;
@@ -323,6 +329,7 @@ reg_t mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 	bool typex = type == FETCH;
 	bool typew = type == STORE;
 	bool normal_rwx = (typer && cfgr) || (typew && cfgw) || (typex && cfgx);
+	bool sum_normal_rwx = (typer && cfgr) || (typew && cfgw) ;
 
 	bool spmp_shared_region = (!cfgr && cfgw) ||
 				  (cfgx && cfgw && cfgr && cfgs) ||
@@ -330,7 +337,7 @@ reg_t mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 
 	bool sum = get_field(proc->state.mstatus, MSTATUS_SUM);
 
-	bool spmp_chk_normal = ((privs == cfgs) && normal_rwx) || (sum && privs && !cfgs && normal_rwx) ;
+	bool spmp_chk_normal = ((privs == cfgs) && normal_rwx) || (sum && privs && !cfgs && sum_normal_rwx);
 	bool spmp_chk_shared = ((!cfgs && !cfgx) && ( typer || (typew && privs))) || //shared data region
 		( (!cfgs && cfgx) && (typer || typew) ) || //shared data region
 		( cfgs && !cfgr && cfgw && typex) ||  //execute-only regions (2)
@@ -339,12 +346,21 @@ reg_t mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 		( cfgs && !cfgw) //read/write/execute on S/U mode
 			;
 
+	fprintf(stderr, "[%s] spmp_shared_region: %x, chk_shared: %x, chk_normal: %x\n",
+			__func__, spmp_shared_region, spmp_chk_shared, spmp_chk_normal);
 	return (mode == PRV_M) || (spmp_shared_region ? spmp_chk_shared : spmp_chk_normal);
       }
     }
     base = tor;
   }
 
+  if (mode == PRV_U) {
+	fprintf(stderr, "[%s] unmatched\n", __func__);
+  	for (size_t i = 0; i < proc->n_spmp; i++) {
+	  fprintf(stderr, "[%s] addr-%d: 0x%lx\n", __func__,i, (proc->state.spmpaddr[i] & proc->spmp_tor_mask()) << SPMP_SHIFT);
+	  fprintf(stderr, "[%s] (no mask) addr-%d: 0x%lx\n", __func__,i, (proc->state.spmpaddr[i]) << SPMP_SHIFT);
+	}
+  }
   return mode == PRV_M || mode == PRV_S;
 }
 

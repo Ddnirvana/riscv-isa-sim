@@ -947,10 +947,15 @@ void processor_t::set_csr(int which, reg_t val)
     if (n_spmp == 0)
       return;
 
-    size_t i = which - CSR_PMPADDR0;
-    if (i < n_pmp) {
+    size_t i = which - CSR_SPMPADDR0;
+    if (i < n_spmp) {
       state.spmpaddr[i] = val & ((reg_t(1) << (MAX_PADDR_BITS - SPMP_SHIFT)) - 1);
       LOG_CSR(which);
+      fprintf(stderr, "[%s] after write spmpaddr(%d): 0x%lx\n", 
+		    __func__, i, state.spmpaddr[i]);
+    }else{
+      fprintf(stderr, "[%s] after write spmpaddr(%d): overflow\n", 
+		    __func__, i);
     }
 
     mmu->flush_tlb();
