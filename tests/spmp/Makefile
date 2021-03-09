@@ -11,6 +11,7 @@ RISCV_TEST ?= /home/chos/riscv-tests
 
 #SPIKE_PATH = /home/chos/riscv-spike-install/
 SPIKE_PATH = /home/chos/build
+SAIL_PATH = /home/chos/sail-riscv-spmp
 
 SSP_OPT ?=
 PERF ?= 0
@@ -58,6 +59,8 @@ $(OBJECTS):
 	@$(RISCV_TOOL)/riscv64-unknown-elf-objdump --disassemble=target_foo a.out >> a.ss
 ifeq ($(PERF), 0)
 	$(SPIKE_PATH)/spike $(SIM_ISA) -m0x100000:0x400000 a.out
+	$(SAIL_PATH)/c_emulator/riscv_sim_RV64 --enable-pmp --enable-spmp -V a.out 
+	#> tmp.log 2>&1; grep SUCCESS tmp.log
 #	/home/scratch.soberl_maxwell/arch1/sail_all/sail-riscv/c_emulator/riscv_sim_RV64 --enable-pmp -V a.out > tmp.log 2>&1; grep SUCCESS tmp.log
 #	@-grep FAILURE tmp.log
 #	$(RISCV_TOOL)/spike $(SIM_ISA) -l a.out > $@_pc.log 2>&1
