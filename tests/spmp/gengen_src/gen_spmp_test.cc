@@ -14,6 +14,7 @@
 
 //#include "test_simple.h"
 #include "test_spmp_ok_1.h"
+#include "test_spmp_ok_share_1.h"
 //#include "test_pmp_ok_1.h"
 //#include "test_pmp_ok_share_1.h"
 //#include "test_pmp_csr_1.h"
@@ -191,6 +192,152 @@ main()
          }
     }
 #endif
+#endif
+
+#if 1 //test case-2: spmp_ok_share
+    spmp_ok_share_gen_class gen_class_2;
+
+    /* Cases for rw(01) */
+    for (int r = 0; r < 1; r++) {
+        for (int x = 0; x < 2; x++) {
+            for (int cfgs = 0; cfgs < 2; cfgs++) {
+                for (int typex = 0; typex < 2; typex++) {
+                    for (int umode = 0; umode < 2; umode++) {
+
+    str_buffer.str("");
+    str_buffer << "outputs/test_spmp_ok_share_r" << r << "_x" << x << "_cfgs" << cfgs
+            << "_typex" << typex << "_umode" << umode << ".c";
+    m_ofstream.open(str_buffer.str().c_str());
+    cur_files_count++;
+
+    gen_class_2.set_tag(str_buffer.str());
+
+    unsigned r_err = 0;
+    unsigned w_err = 0;
+    unsigned x_err = 0;
+
+    gen_class_2.set_spmp_r(r);
+    gen_class_2.set_spmp_w(1);
+    gen_class_2.set_spmp_x(x);
+    gen_class_2.set_spmp_s(cfgs);
+    gen_class_2.set_typex(typex);
+    gen_class_2.set_enable_umode_test(umode);
+
+    if (cfgs) {
+         if (typex == 0) {
+             if (x == 0) {
+                 // no RW access
+                 r_err = 1;
+                 w_err = 1;
+             } else {
+                 // readable for M mode
+                 if (umode) {
+                     r_err = 1;
+                     w_err = 1;
+                 } else {
+                     w_err = 1;
+                 }
+             }
+         } else {
+             // always executable
+         }
+     } else {
+         if (typex == 0) {
+             if (x == 0) {
+                 // RW S mode, R for U
+                 if (umode) {
+                     w_err = 1;
+                 }
+             }
+         } else {
+             x_err = 1;  // when !cfgs, not executable
+         }
+     }
+
+    cur_expected_errors += r_err + w_err + x_err;
+    gen_class_2.set_expected_r_fail(r_err);
+    gen_class_2.set_expected_w_fail(w_err);
+    gen_class_2.set_expected_x_fail(x_err);
+
+    str_buffer.str("");
+    gen_class_2.generate_spmp_ok_share(str_buffer, 0);
+    str_buffer << std::endl;
+    m_ofstream << str_buffer.str();
+    m_ofstream.close();
+                    }
+                }
+            }
+        }
+    }
+
+    /* Cases for srwx(1000) and srwx(1111) */
+    for (int types =0; types <2; types++) { //types for srwx
+    for (int typex = 0; typex < 2; typex++) {
+           for (int umode = 0; umode < 2; umode++) {
+
+    str_buffer.str("");
+    str_buffer << "outputs/test_spmp_ok_share_types" << types
+            << "_typex" << typex << "_umode" << umode << ".c";
+    m_ofstream.open(str_buffer.str().c_str());
+    cur_files_count++;
+
+    gen_class_2.set_tag(str_buffer.str());
+
+    unsigned r_err = 0;
+    unsigned w_err = 0;
+    unsigned x_err = 0;
+
+    if (types == 0) {
+   	 gen_class_2.set_spmp_r(0);
+   	 gen_class_2.set_spmp_w(0);
+   	 gen_class_2.set_spmp_x(0);
+   	 gen_class_2.set_spmp_s(1);
+   	 gen_class_2.set_typex(typex);
+   	 gen_class_2.set_enable_umode_test(umode);
+    }else {
+   	 gen_class_2.set_spmp_r(1);
+   	 gen_class_2.set_spmp_w(1);
+   	 gen_class_2.set_spmp_x(1);
+   	 gen_class_2.set_spmp_s(1);
+   	 gen_class_2.set_typex(typex);
+   	 gen_class_2.set_enable_umode_test(umode);
+    
+    }
+
+    int x;
+    x = types;
+    //if (cfgs) {
+         if (typex == 0) {
+             if (x == 0) {
+		     // always accessiable
+             } else {
+		     // always readable
+                     w_err = 1;
+             }
+         } else {
+             if (x == 1) {
+                 x_err = 1;
+             	// always not executable
+	     }else{
+             	// always executable
+	     }
+         }
+     //} 
+
+    cur_expected_errors += r_err + w_err + x_err;
+    gen_class_2.set_expected_r_fail(r_err);
+    gen_class_2.set_expected_w_fail(w_err);
+    gen_class_2.set_expected_x_fail(x_err);
+
+    str_buffer.str("");
+    gen_class_2.generate_spmp_ok_share(str_buffer, 0);
+    str_buffer << std::endl;
+    m_ofstream << str_buffer.str();
+    m_ofstream.close();
+	   }
+        }
+    }
+
 #endif
 
 #if 0
