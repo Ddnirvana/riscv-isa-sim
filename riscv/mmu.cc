@@ -86,8 +86,10 @@ reg_t mmu_t::translate(reg_t addr, reg_t len, access_type type, uint32_t xlate_f
   if (!pmp_ok(paddr, len, type, mode))
     throw_access_exception(virt, addr, type);
 
-  if (!spmp_ok(paddr, len, type, mode))
+  if (!spmp_ok(paddr, len, type, mode)) {
+    fprintf(stderr, "[%s] throw spmp error for addr:0x%lx, type(%d)\n", __func__, addr, type);
     throw_page_fault_exception(virt, addr, type);
+  }
 
   return paddr;
 }
@@ -341,11 +343,14 @@ reg_t mmu_t::spmp_ok(reg_t addr, reg_t len, access_type type, reg_t mode)
 	bool spmp_chk_shared = ((!cfgs && !cfgx) && ( typer || (typew && privs))) || //shared data region
 		( (!cfgs && cfgx) && (typer || typew) ) || //shared data region
 		( cfgs && !cfgr && cfgw && typex) ||  //execute-only regions (2)
-		( cfgs && !cfgr && cfgw && cfgx && typer) ||  //S-mode r/x shared regions
+		( cfgs && !cfgr && cfgw && cfgx && privs && typer) ||  //S-mode r/x shared regions
 		( cfgs && cfgr && typer) || //read-only on both S/U mode
 		( cfgs && !cfgw) //read/write/execute on S/U mode
 			;
 
+	if (cfgr==0 && cfgw==1)
+	fprintf(stderr, "[%s] spmp_shared_region: %x, cfgs: %x, cfgr: %x, cfgw:%x, cfgx:%x\n",
+			__func__, spmp_shared_region, cfgs, cfgr, cfgw, cfgx);
 	fprintf(stderr, "[%s] spmp_shared_region: %x, chk_shared: %x, chk_normal: %x\n",
 			__func__, spmp_shared_region, spmp_chk_shared, spmp_chk_normal);
 	return (mode == PRV_M) || (spmp_shared_region ? spmp_chk_shared : spmp_chk_normal);
